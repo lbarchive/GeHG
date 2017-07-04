@@ -3,9 +3,10 @@
 
 import csv
 import datetime as dt
-import numpy as np
+
+import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
-import matplotlib.ticker as tkr
+import numpy as np
 
 
 def read_emerges():
@@ -22,77 +23,313 @@ def read_emerges():
 
 
 def bin_data(emerges):
+    '''Putting seconds into minute/hour bins for later data aggregation
 
-    BASE = emerges[0][0]
+    Split am emerge time range (START, END) by minute or hour, e.g.,
+    14:03:21 to 14:05:13.
+
+    By minute, put
+    - 39 seconds in Bin 14:03,
+    - 60 seconds in Bin 14:04 and
+    - 13 seconds in Bin 14:05
+
+    By hour, put 112 seconds in Bin 14.
+
+    Returns a dict of the data:
+    - dts: list of dates (datetime.date)
+    - by_minute: array of minute bins (DAYS, minute bins)
+    - by_hour: array of hour bins (DAYS, hour bins)
+    '''
+    bins = {}
+
+    BASE = emerges[0][0].replace(hour=0, minute=0, second=0)
     td = emerges[-1][1] - BASE
     DAYS = td.days + (td.seconds > 0)
-    days = [x[:] for x in [[0] * 24] * DAYS]
 
-    BASE = BASE.replace(hour=0, minute=0, second=0)
     dts = [BASE.date() + dt.timedelta(days=i) for i in range(DAYS)]
+    bins['dts'] = dts
+
+    ###############
+    # bins_minute #
+    ###############
+    # 24 * 60 = 1440 bins, bin width = 1 minute
+    #         | 1st hour |     | last hour |
+    # Day 1 [ 0 1 2 ... 59 ... 1380 ... 1439 ]
+    # Day 2 [ .............................. ]
+    #   :
+    # DAYS  [ .............................. ]
+
+    bins_minute = [x[:] for x in [[0] * 24 * 60] * DAYS]
 
     for emerge in emerges:
-        fm = emerge[0].replace()
+        fm = emerge[0]
         to = emerge[1]
+        nt = fm.replace(second=0)
         while fm <= to:
-            nt = fm.replace(minute=0, second=0)
-            nt += dt.timedelta(hours=1)
+            nt += dt.timedelta(minutes=1)
             if nt > to:
-                td = to - fm
+                n = (to - fm).seconds
             else:
-                td = nt - fm
-            days[(fm - BASE).days][fm.hour] += td.seconds
+                n = 60
+            bins_minute[(fm - BASE).days][fm.hour * 60 + fm.minute] += n
             fm = nt
+    bins['by_minute'] = bins_minute
 
-    print(days)
-    return days, dts
+    #############
+    # bins_hour #
+    #############
+    # 24 bins, bin width = 1 hour
+    # Day 1 [ 0 1 2 ... 23 ]
+    # Day 2 [ ............ ]
+    #   :
+    # DAYS  [ ............ ]
+
+    sum_hour = lambda mins: [sum(mins[i * 60:(i + 1) * 60]) for i in range(24)]
+    bins_hour = [sum_hour(day_minutes) for day_minutes in bins_minute]
+    bins['by_hour'] = bins_hour
+
+    ############
+    # bins_day #
+    ############
+    # 1 bin, bin width = 24 hour
+    # [ Day1 Day2 ... DAYS ]
+
+    bins['by_day'] = np.transpose(np.sum(bins_minute, axis=1))
+
+    return bins
 
 
 def agg_data(bins):
+    '''Data aggregation
 
-    days, dts = bins
+    Returns a dict of the following data:
+    - dts: array of dates (datetime.date)
+    - weekday_24hour: likelihood to merge of each minute in 24-hour by weekdays
+    - year_days: historical emerges
+    - year_24hour: over 24-hour by years
+    - year_weekday: over weekdays by years
+    '''
+    aggs = {}
 
-    wday_hr = [x[:] for x in [[0] * 24] * 7]
+    dts = np.array(bins['dts'])
+    DAYS = dts.size
+    bins_minute = np.array(bins['by_minute'])
+    bins_day = np.array(bins['by_day'])
+
+    ###################
+    # weekday_24hour #
+    ###################
+    # Likelihood to merge of each minute in 24-hour by weekdays
+    #
+    # 24 * 60 = 1440 bins, bin width = 1 minute
+    #       | 1st hour |     | last hour |
+    # Mon [ 0 1 2 ... 59 ... 1380 ... 1439 ]
+    # Tue [ .............................. ]
+    #  :
+    # Sun [ .............................. ]
+    #
+    # cbmax is the possible maximum of a minute = total weeks * 60.  It has an
+    # error if DAYS % 7 != 0, but negligible if the number of weeks is high
+    # enough.
+
+    weekday_24hour = [x[:] for x in [[0] * 24 * 60] * 7]
 
     WD = dts[0].weekday()
-    for i in range(len(days)):
-        wd = i % 7
-        wday_hr[wd] = [x + y for x, y in zip(wday_hr[wd], days[i])]
+    for i in range(len(bins_minute)):
+        wd = (i + WD) % 7
+        z = zip(weekday_24hour[wd], bins_minute[i])
+        weekday_24hour[wd] = [x + y for x, y in z]
 
-    return {'wday_hr': wday_hr}
+    aggs['weekday_24hour'] = {
+        'data': weekday_24hour,
+        'cbmax': np.ceil(DAYS / 7) * 60,
+    }
+
+    #############
+    # year_days #
+    #############
+    # Historical emerges
+    #
+    # Note:
+    # - February 29 is inserted to every year for alignments.
+    #
+    # Year 1 [ Jan1 Jan2 ... Feb29 ... Dec31 ]
+    # Year 2 [ ............................. ]
+    #   :
+    # YEARS  [ ............................. ]
+
+    fm = dts[0]
+    to = dts[-1]
+    YEARS = to.year - fm.year + 1
+    YEAR_LABELS = [str(year) for year in range(fm.year, to.year + 1)]
+    aggs['YEAR_LABELS'] = YEAR_LABELS
+
+    b = np.array(list(d.month != 2 or d.day != 29 for d in dts))
+    nb = np.logical_not(b)
+
+    # taking leaf days out and reshape into (YEARS, 365)
+    pad = (fm.replace(year=2001) - fm.replace(year=2001, month=1, day=1)).days
+    noleaf = np.hstack((np.zeros(pad), bins_day[b]))
+    noleaf.resize(YEARS, 365)
+
+    # copy noleaf into final array in (YEAR, 366)
+    # 59 = 31 + 28, 60 = 31 + 29
+    Feb29 = np.zeros((YEARS, 1))
+    year_days = np.hstack((noleaf[:, :59], Feb29, noleaf[:, 59:]))
+
+    # putting leaf days back
+    leaf_dts = np.array(dts)[nb]
+    leaf_days = bins_day[nb]
+    for d, day in zip(leaf_dts, leaf_days):
+        year_days[d.year - fm.year, 59] = day
+
+    aggs['year_days'] = {'data': year_days}
+
+    ################
+    # year_24hour #
+    ################
+    # Heatmap over 24-hour by years
+    #
+    # 24 * 60 = 1440 bins, bin width = 1 minute
+    #          | 1st hour |     | last hour |
+    # Year 1 [ 0 1 2 ... 59 ... 1380 ... 1439 ]
+    # Year 2 [ .............................. ]
+    #   :
+    # YEARS  [ .............................. ]
+
+    year_24hour = np.zeros((YEARS, 24 * 60))
+    for y in range(YEARS):
+        b = np.array(list(d.year == y + fm.year for d in dts))
+        year_minutes = bins_minute[b]
+        year_24hour[y] = np.sum(year_minutes.reshape(-1, 24 * 60), axis=0)
+
+    aggs['year_24hour'] = {'data': year_24hour}
+
+    ################
+    # year_weekday #
+    ################
+    # Heatmap over weekdays by years
+    #
+    # 7 * 24 * 60 = 10,080 bins, bin width = 1 minute
+    #          |  Monday  |     |   Sunday   |
+    # Year 1 [ 0 1 ... 1439 ... 8640 ... 10079 ]
+    # Year 2 [ ............................... ]
+    #   :
+    # YEARS  [ ............................... ]
+
+    year_weekday = np.zeros((YEARS, 7 * 24 * 60))
+    for y in range(YEARS):
+        b = np.array(list(d.year == y + fm.year for d in dts))
+        minutes = bins_minute[b]
+
+        # padding to align
+        start_weekday = dts[b][0].weekday()
+        if start_weekday:
+            minutes = np.vstack((np.zeros((start_weekday, 24 * 60)), minutes))
+        minutes.resize((np.ceil(minutes.size / (7 * 24 * 60)), 7 * 24 * 60))
+        year_weekday[y] = np.sum(minutes, axis=0)
+
+    aggs['year_weekday'] = {'data': year_weekday}
+
+    return aggs
 
 
-def plot_wday_hr(wday_hr):
+def plot_heatmap(raw_data, title, ylabels, xticks, xlabels, xticks_minor=None):
 
-    fig, axes = plt.subplots(nrows=7)
-    fig.subplots_adjust(top=0.95, bottom=0.05, left=0.2, right=0.99, hspace=0)
-    axes[0].set_title('Weekdays versus 24 hours', fontsize=14)
-
+    rows = len(ylabels)
+    cbmax = raw_data.get('cbmax', None)
     # normalized
-    wday_hr = np.array(wday_hr)
-    wday_hr = wday_hr / np.max(wday_hr)
+    MAX = np.max(raw_data['data'])
+    data = raw_data['data'] / MAX
 
-    day_names = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
-    for ax, day, day_name in zip(axes, wday_hr, day_names):
-        data = np.vstack((day, day))
-        ax.imshow(data, aspect='auto', cmap=plt.get_cmap('Purples'))
+    fig = plt.figure()
+    fig.suptitle(title, fontsize=18)
+
+    gskw = {'hspace': 0}
+    if cbmax:
+        gskw['bottom'] = 0.15
+    gshmap = gs.GridSpec(rows, 1, **gskw)
+    axes = list(fig.add_subplot(gs) for gs in gshmap)
+
+    IMSHOW_OPTS = {
+        'aspect': 'auto',
+        'cmap': plt.get_cmap('Purples'),
+        'interpolation': 'none',
+    }
+    for ax, row_data, label in zip(axes, data, ylabels):
+        plot_data = np.vstack((row_data, row_data))
+        ax.imshow(plot_data, **IMSHOW_OPTS)
         pos = list(ax.get_position().bounds)
-        x_text = pos[0] - 0.01
-        y_text = pos[1] + pos[3]/2.
-        fig.text(x_text, y_text, day_name, va='center', ha='right', fontsize=10)
+        x = pos[0] - 0.01
+        y = pos[1] + pos[3] / 2
+        fig.text(x, y, label, va='center', ha='right', fontsize=14)
 
     for i, ax in enumerate(axes):
         ax.set_xlim(left=0)
         ax.yaxis.set_ticks([])
-        ax.xaxis.set_ticks(range(0, 24, 6))
-        ax.xaxis.set_ticks(range(0, 24, 3), minor=True)
-        if i < 6:
+        ax.xaxis.set_ticks(xticks)
+        if xticks_minor:
+            ax.xaxis.set_ticks(xticks_minor, minor=True)
+        ax.xaxis.set_ticklabels(xlabels)
+
+        if i < rows - 1:
             for j, tick in enumerate(ax.xaxis.get_major_ticks()):
                 tick.label1On = False
                 tick.label2On = False
-                
+
         ax.grid(which='major', linestyle='-')
         ax.grid(which='minor', linestyle=':')
+
+    # draw the scale / colorbar
+    if cbmax is not None:
+        gscbar = gs.GridSpec(1, 1, top=0.10, bottom=0.05)
+        ax = fig.add_subplot(gscbar[0])
+        N = MAX / cbmax
+        colorbar = np.linspace(0, 1, 256)
+        colorbar = np.vstack((colorbar, colorbar))
+        ax.imshow(colorbar, **IMSHOW_OPTS)
+        ax.set_xlim(left=0)
+        ax.yaxis.set_ticks([])
+        xlabels = list('{:%}'.format(x) for x in np.arange(5) / 4 * N)
+        ax.xaxis.set_ticks(np.hstack((np.arange(4) / 4 * 256, [255])))
+        ax.xaxis.set_ticklabels(xlabels)
+
+
+def plot_graphs(aggs):
+
+    BASE_TITLE = 'Gentoo emerge'
+    YEAR_LABELS = aggs['YEAR_LABELS']
+    WKD_LABELS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday',
+                  'Saturday', 'Sunday')
+
+    O24_LABELS = ('00:00', '06:00', '12:00', '18:00')
+    O24_MAJORTICKS = range(0, 24 * 60, 6 * 60)
+    O24_MINORTICKS = range(0, 24 * 60, 3 * 60)
+
+    title = 'Likelihood to merge of each minute in 24-hour by weekdays'
+    title = BASE_TITLE + ': ' + title
+    plot_heatmap(aggs['weekday_24hour'], title, WKD_LABELS,
+                 O24_MAJORTICKS, O24_LABELS, O24_MINORTICKS)
+
+    MONTH_DAYS = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+    MONTH_LOCS = np.cumsum(np.array(MONTH_DAYS))
+    MONTH_LOCS = np.hstack(([0], MONTH_LOCS[:-1]))
+    MONTH_LABELS = ('January', 'February', 'March', 'April', 'May', 'June',
+                    'July', 'August', 'September', 'October', 'November',
+                    'December')
+
+    plot_heatmap(aggs['year_days'],
+                 BASE_TITLE + ' historical emerges', YEAR_LABELS,
+                 MONTH_LOCS, MONTH_LABELS)
+
+    plot_heatmap(aggs['year_24hour'],
+                 BASE_TITLE + ' over 24-hour by years', YEAR_LABELS,
+                 O24_MAJORTICKS, O24_LABELS, O24_MINORTICKS)
+
+    WKD_MAJORTICKS = range(0, 7 * 24 * 60, 24 * 60)
+    plot_heatmap(aggs['year_weekday'],
+                 BASE_TITLE + ' over weekdays by years', YEAR_LABELS,
+                 WKD_MAJORTICKS, WKD_LABELS)
 
     plt.show()
 
@@ -103,8 +340,7 @@ def main():
     bins = bin_data(emerges)
     aggs = agg_data(bins)
 
-    plot_wday_hr(aggs['wday_hr'])
-
+    plot_graphs(aggs)
 
 
 if __name__ == '__main__':
