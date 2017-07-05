@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 
+import argparse
 import csv
 import datetime as dt
 
@@ -8,16 +9,20 @@ import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
 
+__description__ = 'Gentoo emerge Heatmap Generator'
 
-def read_emerges():
+
+DEFAULT_CSV = 'emerge.csv'
+
+
+def read_emerges(csvfile):
 
     emerges = []
-    with open('emerge.csv') as f:
-        for emerge in csv.reader(f):
-            if emerge[0] == 'START':
-                continue
-            r = tuple(dt.datetime.fromtimestamp(float(ts)) for ts in emerge)
-            emerges.append(r)
+    for emerge in csv.reader(csvfile):
+        if emerge[0] == 'START':
+            continue
+        r = tuple(dt.datetime.fromtimestamp(float(ts)) for ts in emerge)
+        emerges.append(r)
 
     return emerges
 
@@ -336,7 +341,11 @@ def plot_graphs(aggs):
 
 def main():
 
-    emerges = read_emerges()
+    parser = argparse.ArgumentParser(description=__description__)
+    parser.add_argument('csvfile', nargs='?', type=open, default=DEFAULT_CSV)
+    args = parser.parse_args()
+
+    emerges = read_emerges(args.csvfile)
     bins = bin_data(emerges)
     aggs = agg_data(bins)
 
