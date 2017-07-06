@@ -13,6 +13,8 @@ __description__ = 'Gentoo emerge Heatmap Generator'
 
 
 DEFAULT_CSV = 'emerge.csv'
+DEFAULT_WIDTH = 1280
+DEFAULT_HEIGHT = 720
 
 
 def read_emerges(csvfile):
@@ -299,8 +301,10 @@ def plot_heatmap(raw_data, title, ylabels, xticks, xlabels, xticks_minor=None):
         ax.xaxis.set_ticks(np.hstack((np.arange(4) / 4 * 256, [255])))
         ax.xaxis.set_ticklabels(xlabels)
 
+    return fig
 
-def plot_graphs(aggs):
+
+def plot_graphs(aggs, args):
 
     BASE_TITLE = 'Gentoo emerge'
     YEAR_LABELS = aggs['YEAR_LABELS']
@@ -313,8 +317,6 @@ def plot_graphs(aggs):
 
     title = 'Likelihood to merge of each minute in 24-hour by weekdays'
     title = BASE_TITLE + ': ' + title
-    plot_heatmap(aggs['weekday_24hour'], title, WKD_LABELS,
-                 O24_MAJORTICKS, O24_LABELS, O24_MINORTICKS)
 
     MONTH_DAYS = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
     MONTH_LOCS = np.cumsum(np.array(MONTH_DAYS))
@@ -323,33 +325,64 @@ def plot_graphs(aggs):
                     'July', 'August', 'September', 'October', 'November',
                     'December')
 
-    plot_heatmap(aggs['year_days'],
-                 BASE_TITLE + ' historical emerges', YEAR_LABELS,
-                 MONTH_LOCS, MONTH_LABELS)
-
-    plot_heatmap(aggs['year_24hour'],
-                 BASE_TITLE + ' over 24-hour by years', YEAR_LABELS,
-                 O24_MAJORTICKS, O24_LABELS, O24_MINORTICKS)
-
     WKD_MAJORTICKS = range(0, 7 * 24 * 60, 24 * 60)
-    plot_heatmap(aggs['year_weekday'],
-                 BASE_TITLE + ' over weekdays by years', YEAR_LABELS,
-                 WKD_MAJORTICKS, WKD_LABELS)
 
-    plt.show()
+    figure_params = {
+        'weekday_24hour': [
+            BASE_TITLE + (': Likelihood to merge of each minute '
+                          'in 24-hour by weekdays'),
+            WKD_LABELS, O24_MAJORTICKS, O24_LABELS, O24_MINORTICKS,
+        ],
+        'year_days': [
+            BASE_TITLE + ': historical emerges',
+            YEAR_LABELS, MONTH_LOCS, MONTH_LABELS,
+        ],
+        'year_24hour': [
+            BASE_TITLE + ': over 24-hour by years',
+            YEAR_LABELS, O24_MAJORTICKS, O24_LABELS, O24_MINORTICKS,
+        ],
+        'year_weekday': [
+            BASE_TITLE + ': over weekdays by years',
+            YEAR_LABELS, WKD_MAJORTICKS, WKD_LABELS,
+        ],
+    }
+
+    for name, params in figure_params.items():
+        figure = plot_heatmap(aggs[name], *params)
+        if args.figsave:
+            figure.savefig('%s/%s.png' % (args.saveto, name))
+
+    if not args.noshow:
+        plt.show()
 
 
 def main():
 
     parser = argparse.ArgumentParser(description=__description__)
+    parser.add_argument('-W', '--width', type=int, default=DEFAULT_WIDTH,
+                        help='width of figures (default: %(default)s)')
+    parser.add_argument('-H', '--height', type=int, default=DEFAULT_HEIGHT,
+                        help='height of figures (default: %(default)s)')
+    parser.add_argument('-S', '--noshow', action='store_true',
+                        help='do not show figures')
+    parser.add_argument('-s', '--figsave', action='store_true',
+                        help='save figures as images')
+    parser.add_argument('-t', '--saveto', default='/tmp',
+                        help='where to save images (default: %(default)s)')
     parser.add_argument('csvfile', nargs='?', type=open, default=DEFAULT_CSV)
     args = parser.parse_args()
+
+    args.saveto = args.saveto.rstrip('/')
 
     emerges = read_emerges(args.csvfile)
     bins = bin_data(emerges)
     aggs = agg_data(bins)
 
-    plot_graphs(aggs)
+    dpi = plt.rcParams['figure.dpi']
+    plt.rcParams['savefig.dpi'] = dpi
+    plt.rcParams["figure.figsize"] = (args.width / dpi, args.height / dpi)
+
+    plot_graphs(aggs, args)
 
 
 if __name__ == '__main__':
