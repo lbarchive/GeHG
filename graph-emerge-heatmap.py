@@ -113,6 +113,8 @@ def agg_data(bins):
     - dts: array of dates (datetime.date)
     - weekday_24hour: likelihood to merge of each minute in 24-hour by weekdays
     - year_days: historical emerges
+    - yearly_total: yearly total emerging time in hours
+    - yearly_avg_daily: yearly average emerging time in minutes
     - year_24hour: over 24-hour by years
     - year_weekday: over weekdays by years
     '''
@@ -168,7 +170,9 @@ def agg_data(bins):
     fm = dts[0]
     to = dts[-1]
     YEARS = to.year - fm.year + 1
-    YEAR_LABELS = [str(year) for year in range(fm.year, to.year + 1)]
+    YEAR_NUMBERS = range(fm.year, to.year + 1)
+    aggs['YEAR_NUMBERS'] = YEAR_NUMBERS
+    YEAR_LABELS = list(map(str, YEAR_NUMBERS))
     aggs['YEAR_LABELS'] = YEAR_LABELS
 
     b = np.array(list(d.month != 2 or d.day != 29 for d in dts))
@@ -191,6 +195,31 @@ def agg_data(bins):
         year_days[d.year - fm.year, 59] = day
 
     aggs['year_days'] = {'data': year_days}
+
+    ################
+    # yearly_total #
+    ################
+    # yearly emerging time in hours
+
+    yearly_total_seconds = np.sum(year_days, axis=1)
+    yearly_total = yearly_total_seconds / 3600
+    aggs['yearly_total'] = {
+        'values': yearly_total,
+    }
+
+    ####################
+    # yearly_avg_daily #
+    ####################
+    # yearly emerging time in minutes
+
+    yearly_avg_daily = yearly_total_seconds / 60
+    for y in range(YEARS):
+        days = sum(1 for d in dts if d.year == YEAR_NUMBERS[y])
+        yearly_avg_daily[y] /= days
+
+    aggs['yearly_avg_daily'] = {
+        'values': yearly_avg_daily,
+    }
 
     ################
     # year_24hour #
@@ -304,6 +333,23 @@ def plot_heatmap(raw_data, title, ylabels, xticks, xlabels, xticks_minor=None):
     return fig
 
 
+def plot_barh(raw_data, title, ax_props=None):
+
+    values = raw_data['values']
+
+    fig, ax = plt.subplots()
+    fig.suptitle(title, fontsize=18)
+
+    ypos = np.arange(values.size)
+
+    ax.barh(ypos, values, color='#54487a', edgecolor='#dddaec', align='center')
+    ax.invert_yaxis()
+    ax.set(yticks=ypos, **ax_props)
+    ax.grid(which='major', axis='x')
+
+    return fig
+
+
 def plot_graphs(aggs, args):
 
     BASE_TITLE = 'Gentoo emerge'
@@ -329,26 +375,48 @@ def plot_graphs(aggs, args):
 
     figure_params = {
         'weekday_24hour': [
+            plot_heatmap,
             BASE_TITLE + (': Likelihood to merge of each minute '
                           'in 24-hour by weekdays'),
             WKD_LABELS, O24_MAJORTICKS, O24_LABELS, O24_MINORTICKS,
         ],
         'year_days': [
+            plot_heatmap,
             BASE_TITLE + ': historical emerges',
             YEAR_LABELS, MONTH_LOCS, MONTH_LABELS,
         ],
         'year_24hour': [
+            plot_heatmap,
             BASE_TITLE + ': over 24-hour by years',
             YEAR_LABELS, O24_MAJORTICKS, O24_LABELS, O24_MINORTICKS,
         ],
         'year_weekday': [
+            plot_heatmap,
             BASE_TITLE + ': over weekdays by years',
             YEAR_LABELS, WKD_MAJORTICKS, WKD_LABELS,
         ],
+        'yearly_total': [
+            plot_barh,
+            BASE_TITLE + ': emerging time by years',
+            {
+                'xlabel': 'Total emerging time (hour)',
+                'yticklabels': aggs['YEAR_LABELS'],
+            },
+        ],
+        'yearly_avg_daily': [
+            plot_barh,
+            BASE_TITLE + ': average daily emerging time by years',
+            {
+                'xlabel': 'Average daily emerging time (minute)',
+                'yticklabels': aggs['YEAR_LABELS'],
+            },
+        ],
     }
 
-    for name, params in figure_params.items():
-        figure = plot_heatmap(aggs[name], *params)
+    for name, item in figure_params.items():
+        plot_func = item[0]
+        plot_args = item[1:]
+        figure = plot_func(aggs[name], *plot_args)
         if args.figsave:
             figure.savefig('%s/%s.png' % (args.saveto, name))
 
