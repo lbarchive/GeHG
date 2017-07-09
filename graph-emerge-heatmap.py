@@ -15,6 +15,7 @@ __description__ = 'Gentoo emerge Heatmap Generator'
 DEFAULT_CSV = 'emerge.csv'
 DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
+FIGURE_PARAMS = None
 
 
 def read_emerges(csvfile):
@@ -349,10 +350,11 @@ def plot_barh(raw_data, title, ax_props=None):
     return fig
 
 
-def plot_graphs(aggs, args):
+def init_figure_params():
+
+    global FIGURE_PARAMS
 
     BASE_TITLE = 'Gentoo emerge'
-    YEAR_LABELS = aggs['YEAR_LABELS']
     WKD_LABELS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday',
                   'Saturday', 'Sunday')
 
@@ -372,7 +374,7 @@ def plot_graphs(aggs, args):
 
     WKD_MAJORTICKS = range(0, 7 * 24 * 60, 24 * 60)
 
-    figure_params = {
+    FIGURE_PARAMS = {
         'weekday_24hour': [
             plot_heatmap,
             BASE_TITLE + (': Likelihood to merge of each minute '
@@ -390,7 +392,6 @@ def plot_graphs(aggs, args):
             plot_heatmap,
             BASE_TITLE + ': historical emerges',
             {
-                'yticklabels': YEAR_LABELS,
                 'xticks': MONTH_LOCS,
                 'xticklabels': MONTH_LABELS,
             },
@@ -399,7 +400,6 @@ def plot_graphs(aggs, args):
             plot_heatmap,
             BASE_TITLE + ': over 24-hour by years',
             {
-                'yticklabels': YEAR_LABELS,
                 'xticks': O24_MAJORTICKS,
                 'xticklabels': O24_LABELS,
             },
@@ -411,7 +411,6 @@ def plot_graphs(aggs, args):
             plot_heatmap,
             BASE_TITLE + ': over weekdays by years',
             {
-                'yticklabels': YEAR_LABELS,
                 'xticks': WKD_MAJORTICKS,
                 'xticklabels': WKD_LABELS,
             },
@@ -420,7 +419,6 @@ def plot_graphs(aggs, args):
             plot_barh,
             BASE_TITLE + ': emerging time by years',
             {
-                'yticklabels': aggs['YEAR_LABELS'],
                 'xlabel': 'Total emerging time (hour)',
             },
         ],
@@ -428,13 +426,21 @@ def plot_graphs(aggs, args):
             plot_barh,
             BASE_TITLE + ': average daily emerging time by years',
             {
-                'yticklabels': aggs['YEAR_LABELS'],
                 'xlabel': 'Average daily emerging time (minute)',
             },
         ],
     }
 
-    for name, item in figure_params.items():
+
+def plot_graphs(aggs, args):
+
+    YEAR_LABELS = aggs['YEAR_LABELS']
+    for figure in ('year_days', 'year_24hour', 'year_weekday', 'yearly_total',
+                   'yearly_avg_daily'):
+        FIGURE_PARAMS[figure][2]['yticklabels'] = YEAR_LABELS
+
+    for name in args.figures:
+        item = FIGURE_PARAMS[name]
         plot_func = item[0]
         plot_args = item[1:]
         figure = plot_func(aggs[name], *plot_args)
@@ -447,7 +453,11 @@ def plot_graphs(aggs, args):
 
 def main():
 
+    init_figure_params()
     parser = argparse.ArgumentParser(description=__description__)
+    parser.add_argument('-f', nargs='+', default=['all'], dest='figures',
+                        choices=['all'] + list(FIGURE_PARAMS.keys()),
+                        help='figures to generate (default %(default)s)')
     parser.add_argument('-W', '--width', type=int, default=DEFAULT_WIDTH,
                         help='width of figures (default: %(default)s)')
     parser.add_argument('-H', '--height', type=int, default=DEFAULT_HEIGHT,
@@ -461,6 +471,8 @@ def main():
     parser.add_argument('csvfile', nargs='?', type=open, default=DEFAULT_CSV)
     args = parser.parse_args()
 
+    if 'all' in args.figures:
+        args.figures = list(FIGURE_PARAMS.keys())
     args.saveto = args.saveto.rstrip('/')
 
     emerges = read_emerges(args.csvfile)
