@@ -270,9 +270,10 @@ def agg_data(bins):
     return aggs
 
 
-def plot_heatmap(raw_data, title, ylabels, xticks, xlabels, xticks_minor=None):
+def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
 
-    rows = len(ylabels)
+    more_props = {} if more_props is None else more_props
+    rows = len(ax_props['yticklabels'])
     cbmax = raw_data.get('cbmax', None)
     # normalized
     MAX = np.max(raw_data['data'])
@@ -292,7 +293,7 @@ def plot_heatmap(raw_data, title, ylabels, xticks, xlabels, xticks_minor=None):
         'cmap': plt.get_cmap('Purples'),
         'interpolation': 'none',
     }
-    for ax, row_data, label in zip(axes, data, ylabels):
+    for ax, row_data, label in zip(axes, data, ax_props['yticklabels']):
         plot_data = np.vstack((row_data, row_data))
         ax.imshow(plot_data, **IMSHOW_OPTS)
         pos = list(ax.get_position().bounds)
@@ -301,12 +302,10 @@ def plot_heatmap(raw_data, title, ylabels, xticks, xlabels, xticks_minor=None):
         fig.text(x, y, label, va='center', ha='right', fontsize=14)
 
     for i, ax in enumerate(axes):
-        ax.set_xlim(left=0)
-        ax.yaxis.set_ticks([])
-        ax.xaxis.set_ticks(xticks)
-        if xticks_minor:
-            ax.xaxis.set_ticks(xticks_minor, minor=True)
-        ax.xaxis.set_ticklabels(xlabels)
+        ax.set(xlim=0, yticks=[], **ax_props)
+        prop_name = 'xminorticks'
+        if prop_name in more_props:
+            ax.xaxis.set_ticks(more_props[prop_name], minor=True)
 
         if i < rows - 1:
             for j, tick in enumerate(ax.xaxis.get_major_ticks()):
@@ -378,37 +377,59 @@ def plot_graphs(aggs, args):
             plot_heatmap,
             BASE_TITLE + (': Likelihood to merge of each minute '
                           'in 24-hour by weekdays'),
-            WKD_LABELS, O24_MAJORTICKS, O24_LABELS, O24_MINORTICKS,
+            {
+                'yticklabels': WKD_LABELS,
+                'xticks': O24_MAJORTICKS,
+                'xticklabels': O24_LABELS,
+            },
+            {
+                'xminorticks': O24_MINORTICKS,
+            },
         ],
         'year_days': [
             plot_heatmap,
             BASE_TITLE + ': historical emerges',
-            YEAR_LABELS, MONTH_LOCS, MONTH_LABELS,
+            {
+                'yticklabels': YEAR_LABELS,
+                'xticks': MONTH_LOCS,
+                'xticklabels': MONTH_LABELS,
+            },
         ],
         'year_24hour': [
             plot_heatmap,
             BASE_TITLE + ': over 24-hour by years',
-            YEAR_LABELS, O24_MAJORTICKS, O24_LABELS, O24_MINORTICKS,
+            {
+                'yticklabels': YEAR_LABELS,
+                'xticks': O24_MAJORTICKS,
+                'xticklabels': O24_LABELS,
+            },
+            {
+                'xminorticks': O24_MINORTICKS,
+            },
         ],
         'year_weekday': [
             plot_heatmap,
             BASE_TITLE + ': over weekdays by years',
-            YEAR_LABELS, WKD_MAJORTICKS, WKD_LABELS,
+            {
+                'yticklabels': YEAR_LABELS,
+                'xticks': WKD_MAJORTICKS,
+                'xticklabels': WKD_LABELS,
+            },
         ],
         'yearly_total': [
             plot_barh,
             BASE_TITLE + ': emerging time by years',
             {
-                'xlabel': 'Total emerging time (hour)',
                 'yticklabels': aggs['YEAR_LABELS'],
+                'xlabel': 'Total emerging time (hour)',
             },
         ],
         'yearly_avg_daily': [
             plot_barh,
             BASE_TITLE + ': average daily emerging time by years',
             {
-                'xlabel': 'Average daily emerging time (minute)',
                 'yticklabels': aggs['YEAR_LABELS'],
+                'xlabel': 'Average daily emerging time (minute)',
             },
         ],
     }
