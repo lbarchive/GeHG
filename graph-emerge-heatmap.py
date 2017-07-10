@@ -281,7 +281,6 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     rect = [0.10, 0.05, 0.875, 0.875]  # L, B, W, H
     if cbmax:
         rect[1] = 0.15
-        rect[2] = 0.85
         rect[3] = 0.775
     ax = plt.axes(rect)
 
@@ -294,6 +293,11 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     ax.set(xlim=0, yticks=np.arange(rows), **ax_props)
     # don't show yticks
     ax.tick_params(axis='y', length=0)
+
+    prop_name = 'last-xlabel-right-align'
+    if prop_name in more_props:
+        xlabels = ax.xaxis.get_ticklabels()
+        xlabels[-1].set_horizontalalignment('right')
 
     prop_name = 'xminorticks'
     if prop_name in more_props:
@@ -314,7 +318,7 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     colorbar = np.linspace(0, 1, 256)
     colorbar = np.vstack((colorbar, colorbar))
     ax.imshow(colorbar, **IMSHOW_OPTS)
-    ax.set_xlim(left=0)
+    ax.set_xlim(left=0, right=255.0)
     ax.set_ylim(top=-0.5, bottom=0.5)
     ax.yaxis.set_ticks([0])
     ax.yaxis.set_ticklabels([more_props['cbmax_label']])
@@ -322,6 +326,13 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     xlabels = list('{:%}'.format(x) for x in np.arange(5) / 4 * N)
     ax.xaxis.set_ticks(np.hstack((np.arange(4) / 4 * 256, [255])))
     ax.xaxis.set_ticklabels(xlabels)
+
+    prop_name = 'last-xlabel-right-align'
+    if prop_name in more_props:
+        xlabels = ax.xaxis.get_ticklabels()
+        xlabels[-1].set_horizontalalignment('right')
+
+    ax.grid(axis='x', which='major', linestyle='-')
 
     return fig
 
@@ -351,8 +362,8 @@ def init_figure_params():
     WKD_LABELS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday',
                   'Saturday', 'Sunday')
 
-    O24_LABELS = ('00:00', '06:00', '12:00', '18:00')
-    O24_MAJORTICKS = range(0, 24 * 60, 6 * 60)
+    O24_LABELS = ('00:00', '06:00', '12:00', '18:00', '23:59')
+    O24_MAJORTICKS = list(range(0, 24 * 60, 6 * 60)) + [24 * 60 - 1]
     O24_MINORTICKS = range(0, 24 * 60, 3 * 60)
 
     MONTH_DAYS = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
@@ -383,6 +394,7 @@ def init_figure_params():
             },
             {
                 'cbmax_label': 'Likelihood',
+                'last-xlabel-right-align': True,
                 'xminorticks': O24_MINORTICKS,
             },
         ],
@@ -394,6 +406,7 @@ def init_figure_params():
                 'xticklabels': O24_LABELS,
             },
             {
+                'last-xlabel-right-align': True,
                 'xminorticks': O24_MINORTICKS,
             },
         ],
