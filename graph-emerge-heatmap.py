@@ -111,12 +111,7 @@ def agg_data(bins):
 
     Returns a dict of the following data:
     - dts: array of dates (datetime.date)
-    - weekday_24hour: likelihood to merge of each minute in 24-hour by weekdays
-    - year_days: historical emerges
-    - yearly_total: yearly total emerging time in hours
-    - yearly_avg_daily: yearly average emerging time in minutes
-    - year_24hour: over 24-hour by years
-    - year_weekday: over weekdays by years
+    - see below
     '''
     aggs = {}
 
@@ -125,11 +120,9 @@ def agg_data(bins):
     bins_minute = np.array(bins['by_minute'])
     bins_day = np.array(bins['by_day'])
 
-    ###################
-    # weekday_24hour #
-    ###################
-    # Likelihood to merge of each minute in 24-hour by weekdays
-    #
+    ###################################
+    # likelihood_by_weekday_timeofday #
+    ###################################
     # 24 * 60 = 1440 bins, bin width = 1 minute
     #       | 1st hour |     | last hour |
     # Mon [ 0 1 2 ... 59 ... 1380 ... 1439 ]
@@ -141,24 +134,22 @@ def agg_data(bins):
     # error if DAYS % 7 != 0, but negligible if the number of weeks is high
     # enough.
 
-    weekday_24hour = [x[:] for x in [[0] * 24 * 60] * 7]
+    likelihood_by_weekday_timeofday = [x[:] for x in [[0] * 24 * 60] * 7]
 
     WD = dts[0].weekday()
     for i in range(len(bins_minute)):
         wd = (i + WD) % 7
-        z = zip(weekday_24hour[wd], bins_minute[i])
-        weekday_24hour[wd] = [x + y for x, y in z]
+        z = zip(likelihood_by_weekday_timeofday[wd], bins_minute[i])
+        likelihood_by_weekday_timeofday[wd] = [x + y for x, y in z]
 
-    aggs['weekday_24hour'] = {
-        'data': weekday_24hour,
+    aggs['likelihood_by_weekday_timeofday'] = {
+        'data': likelihood_by_weekday_timeofday,
         'cbmax': np.ceil(DAYS / 7) * 60,
     }
 
-    #############
-    # year_days #
-    #############
-    # Historical emerges
-    #
+    ##############
+    # historical #
+    ##############
     # Note:
     # - February 29 is inserted to every year for alignments.
     #
@@ -186,46 +177,42 @@ def agg_data(bins):
     # copy noleaf into final array in (YEAR, 366)
     # 59 = 31 + 28, 60 = 31 + 29
     Feb29 = np.zeros((YEARS, 1))
-    year_days = np.hstack((noleaf[:, :59], Feb29, noleaf[:, 59:]))
+    historical = np.hstack((noleaf[:, :59], Feb29, noleaf[:, 59:]))
 
     # putting leaf days back
     leaf_dts = np.array(dts)[nb]
     leaf_days = bins_day[nb]
     for d, day in zip(leaf_dts, leaf_days):
-        year_days[d.year - fm.year, 59] = day
+        historical[d.year - fm.year, 59] = day
 
-    aggs['year_days'] = {'data': year_days}
+    aggs['historical'] = {'data': historical}
 
-    ################
-    # yearly_total #
-    ################
-    # yearly emerging time in hours
+    ##########
+    # yearly #
+    ##########
 
-    yearly_total_seconds = np.sum(year_days, axis=1)
-    yearly_total = yearly_total_seconds / 3600
-    aggs['yearly_total'] = {
-        'values': yearly_total,
+    yearly_seconds = np.sum(historical, axis=1)
+    yearly = yearly_seconds / 3600
+    aggs['yearly'] = {
+        'values': yearly,
     }
 
-    ####################
-    # yearly_avg_daily #
-    ####################
-    # yearly emerging time in minutes
+    #########################
+    # daily_average_by_year #
+    #########################
 
-    yearly_avg_daily = yearly_total_seconds / 60
+    daily_average_by_year = yearly_seconds / 60
     for y in range(YEARS):
         days = sum(1 for d in dts if d.year == YEAR_NUMBERS[y])
-        yearly_avg_daily[y] /= days
+        daily_average_by_year[y] /= days
 
-    aggs['yearly_avg_daily'] = {
-        'values': yearly_avg_daily,
+    aggs['daily_average_by_year'] = {
+        'values': daily_average_by_year,
     }
 
-    ################
-    # year_24hour #
-    ################
-    # Heatmap over 24-hour by years
-    #
+    #####################
+    # by_year_timeofday #
+    #####################
     # 24 * 60 = 1440 bins, bin width = 1 minute
     #          | 1st hour |     | last hour |
     # Year 1 [ 0 1 2 ... 59 ... 1380 ... 1439 ]
@@ -233,17 +220,18 @@ def agg_data(bins):
     #   :
     # YEARS  [ .............................. ]
 
-    year_24hour = np.zeros((YEARS, 24 * 60))
+    by_year_timeofday = np.zeros((YEARS, 24 * 60))
     for y in range(YEARS):
         b = np.array(list(d.year == y + fm.year for d in dts))
         year_minutes = bins_minute[b]
-        year_24hour[y] = np.sum(year_minutes.reshape(-1, 24 * 60), axis=0)
+        tsum = np.sum(year_minutes.reshape(-1, 24 * 60), axis=0)
+        by_year_timeofday[y] = tsum
 
-    aggs['year_24hour'] = {'data': year_24hour}
+    aggs['by_year_timeofday'] = {'data': by_year_timeofday}
 
-    ################
-    # year_weekday #
-    ################
+    ###################
+    # by_year_weekday #
+    ###################
     # Heatmap over weekdays by years
     #
     # 7 * 24 * 60 = 10,080 bins, bin width = 1 minute
@@ -253,7 +241,7 @@ def agg_data(bins):
     #   :
     # YEARS  [ ............................... ]
 
-    year_weekday = np.zeros((YEARS, 7 * 24 * 60))
+    by_year_weekday = np.zeros((YEARS, 7 * 24 * 60))
     for y in range(YEARS):
         b = np.array(list(d.year == y + fm.year for d in dts))
         minutes = bins_minute[b]
@@ -263,9 +251,9 @@ def agg_data(bins):
         if start_weekday:
             minutes = np.vstack((np.zeros((start_weekday, 24 * 60)), minutes))
         minutes.resize((np.ceil(minutes.size / (7 * 24 * 60)), 7 * 24 * 60))
-        year_weekday[y] = np.sum(minutes, axis=0)
+        by_year_weekday[y] = np.sum(minutes, axis=0)
 
-    aggs['year_weekday'] = {'data': year_weekday}
+    aggs['by_year_weekday'] = {'data': by_year_weekday}
 
     return aggs
 
@@ -319,7 +307,10 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     colorbar = np.vstack((colorbar, colorbar))
     ax.imshow(colorbar, **IMSHOW_OPTS)
     ax.set_xlim(left=0)
-    ax.yaxis.set_ticks([])
+    ax.set_ylim(top=-0.5, bottom=0.5)
+    ax.yaxis.set_ticks([0])
+    ax.yaxis.set_ticklabels([more_props['cbmax_label']])
+    ax.tick_params(axis='y', length=0)
     xlabels = list('{:%}'.format(x) for x in np.arange(5) / 4 * N)
     ax.xaxis.set_ticks(np.hstack((np.arange(4) / 4 * 256, [255])))
     ax.xaxis.set_ticklabels(xlabels)
@@ -348,16 +339,12 @@ def init_figure_params():
 
     global FIGURE_PARAMS
 
-    BASE_TITLE = 'Gentoo emerge'
     WKD_LABELS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday',
                   'Saturday', 'Sunday')
 
     O24_LABELS = ('00:00', '06:00', '12:00', '18:00')
     O24_MAJORTICKS = range(0, 24 * 60, 6 * 60)
     O24_MINORTICKS = range(0, 24 * 60, 3 * 60)
-
-    title = 'Likelihood to merge of each minute in 24-hour by weekdays'
-    title = BASE_TITLE + ': ' + title
 
     MONTH_DAYS = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
     MONTH_LOCS = np.cumsum(np.array(MONTH_DAYS))
@@ -369,30 +356,30 @@ def init_figure_params():
     WKD_MAJORTICKS = range(0, 7 * 24 * 60, 24 * 60)
 
     FIGURE_PARAMS = {
-        'weekday_24hour': [
+        'historical': [
             plot_heatmap,
-            BASE_TITLE + (': Likelihood to merge of each minute '
-                          'in 24-hour by weekdays'),
+            'Historical Gentoo emerge Running Time',
+            {
+                'xticks': MONTH_LOCS,
+                'xticklabels': MONTH_LABELS,
+            },
+        ],
+        'likelihood_by_weekday_timeofday': [
+            plot_heatmap,
+            'Gentoo emerge Running Likelihood by Weekday and Time of Day',
             {
                 'yticklabels': WKD_LABELS,
                 'xticks': O24_MAJORTICKS,
                 'xticklabels': O24_LABELS,
             },
             {
+                'cbmax_label': 'Likelihood',
                 'xminorticks': O24_MINORTICKS,
             },
         ],
-        'year_days': [
+        'by_year_timeofday': [
             plot_heatmap,
-            BASE_TITLE + ': historical emerges',
-            {
-                'xticks': MONTH_LOCS,
-                'xticklabels': MONTH_LABELS,
-            },
-        ],
-        'year_24hour': [
-            plot_heatmap,
-            BASE_TITLE + ': over 24-hour by years',
+            'Gentoo emerge Running Time by Year and Time of Day',
             {
                 'xticks': O24_MAJORTICKS,
                 'xticklabels': O24_LABELS,
@@ -401,26 +388,26 @@ def init_figure_params():
                 'xminorticks': O24_MINORTICKS,
             },
         ],
-        'year_weekday': [
+        'by_year_weekday': [
             plot_heatmap,
-            BASE_TITLE + ': over weekdays by years',
+            'Gentoo emerge Running Time by Year and Weekday',
             {
                 'xticks': WKD_MAJORTICKS,
                 'xticklabels': WKD_LABELS,
             },
         ],
-        'yearly_total': [
+        'yearly': [
             plot_barh,
-            BASE_TITLE + ': emerging time by years',
+            'Gentoo emerge Yearly Running Time',
             {
-                'xlabel': 'Total emerging time (hour)',
+                'xlabel': 'Yearly Running Time (hour)',
             },
         ],
-        'yearly_avg_daily': [
+        'daily_average_by_year': [
             plot_barh,
-            BASE_TITLE + ': average daily emerging time by years',
+            'Gentoo emerge Daily Average Running Time by Year',
             {
-                'xlabel': 'Average daily emerging time (minute)',
+                'xlabel': 'Daily Average Running Time (minute)',
             },
         ],
     }
@@ -429,8 +416,8 @@ def init_figure_params():
 def plot_graphs(aggs, args):
 
     YEAR_LABELS = aggs['YEAR_LABELS']
-    for figure in ('year_days', 'year_24hour', 'year_weekday', 'yearly_total',
-                   'yearly_avg_daily'):
+    for figure in ('historical', 'by_year_timeofday', 'by_year_weekday',
+                   'yearly', 'daily_average_by_year'):
         FIGURE_PARAMS[figure][2]['yticklabels'] = YEAR_LABELS
 
     for name in args.figures:
@@ -439,7 +426,7 @@ def plot_graphs(aggs, args):
         plot_args = item[1:]
         figure = plot_func(aggs[name], *plot_args)
         if args.figsave:
-            figure.savefig('%s/%s.png' % (args.saveto, name))
+            figure.savefig('%s/GeHG-%s.png' % (args.saveto, name))
 
     if not args.noshow:
         plt.show()
