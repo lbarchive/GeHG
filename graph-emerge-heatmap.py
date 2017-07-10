@@ -5,7 +5,6 @@ import argparse
 import csv
 import datetime as dt
 
-import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -283,52 +282,47 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     fig = plt.figure()
     fig.suptitle(title, fontsize=18)
 
-    gskw = {'hspace': 0}
+    rect = [0.10, 0.05, 0.875, 0.875]  # L, B, W, H
     if cbmax:
-        gskw['bottom'] = 0.15
-    gshmap = gs.GridSpec(rows, 1, **gskw)
-    axes = list(fig.add_subplot(gs) for gs in gshmap)
+        rect[1] = 0.15
+        rect[2] = 0.85
+        rect[3] = 0.775
+    ax = plt.axes(rect)
 
     IMSHOW_OPTS = {
         'aspect': 'auto',
         'cmap': plt.get_cmap('Purples'),
         'interpolation': 'none',
     }
-    for ax, row_data, label in zip(axes, data, ax_props['yticklabels']):
-        plot_data = np.vstack((row_data, row_data))
-        ax.imshow(plot_data, **IMSHOW_OPTS)
-        pos = list(ax.get_position().bounds)
-        x = pos[0] - 0.01
-        y = pos[1] + pos[3] / 2
-        fig.text(x, y, label, va='center', ha='right', fontsize=14)
+    ax.imshow(data, **IMSHOW_OPTS)
+    ax.set(xlim=0, yticks=np.arange(rows), **ax_props)
+    # don't show yticks
+    ax.tick_params(axis='y', length=0)
 
-    for i, ax in enumerate(axes):
-        ax.set(xlim=0, yticks=[], **ax_props)
-        prop_name = 'xminorticks'
-        if prop_name in more_props:
-            ax.xaxis.set_ticks(more_props[prop_name], minor=True)
+    prop_name = 'xminorticks'
+    if prop_name in more_props:
+        ax.xaxis.set_ticks(more_props[prop_name], minor=True)
 
-        if i < rows - 1:
-            for j, tick in enumerate(ax.xaxis.get_major_ticks()):
-                tick.label1On = False
-                tick.label2On = False
+    ax.grid(axis='x', which='major', linestyle='-')
+    ax.grid(axis='x', which='minor', linestyle=':')
 
-        ax.grid(which='major', linestyle='-')
-        ax.grid(which='minor', linestyle=':')
+    if cbmax is None:
+        return fig
 
     # draw the scale / colorbar
-    if cbmax is not None:
-        gscbar = gs.GridSpec(1, 1, top=0.10, bottom=0.05)
-        ax = fig.add_subplot(gscbar[0])
-        N = MAX / cbmax
-        colorbar = np.linspace(0, 1, 256)
-        colorbar = np.vstack((colorbar, colorbar))
-        ax.imshow(colorbar, **IMSHOW_OPTS)
-        ax.set_xlim(left=0)
-        ax.yaxis.set_ticks([])
-        xlabels = list('{:%}'.format(x) for x in np.arange(5) / 4 * N)
-        ax.xaxis.set_ticks(np.hstack((np.arange(4) / 4 * 256, [255])))
-        ax.xaxis.set_ticklabels(xlabels)
+    rect[1] = 0.05
+    rect[3] = 0.05
+    ax = plt.axes(rect)
+
+    N = MAX / cbmax
+    colorbar = np.linspace(0, 1, 256)
+    colorbar = np.vstack((colorbar, colorbar))
+    ax.imshow(colorbar, **IMSHOW_OPTS)
+    ax.set_xlim(left=0)
+    ax.yaxis.set_ticks([])
+    xlabels = list('{:%}'.format(x) for x in np.arange(5) / 4 * N)
+    ax.xaxis.set_ticks(np.hstack((np.arange(4) / 4 * 256, [255])))
+    ax.xaxis.set_ticklabels(xlabels)
 
     return fig
 
