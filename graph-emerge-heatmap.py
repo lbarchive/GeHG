@@ -7,6 +7,7 @@ import datetime as dt
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.colors import LinearSegmentedColormap as LSC
 
 __description__ = 'Gentoo emerge Heatmap Generator'
 
@@ -15,6 +16,13 @@ DEFAULT_CSV = 'emerge.csv'
 DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
 FIGURE_PARAMS = None
+
+# from webpage, #62548f = rgb(98, 84, 143)
+GENTOO_PURPLE1 = '#62548f'
+GENTOO_PURPLE2 = '#dddaec'
+GENTOO_PURPLES = np.array([98, 84, 143]) / 255
+GENTOO_PURPLES = [[1.0] * 3, GENTOO_PURPLES]
+GENTOO_PURPLES = LSC.from_list('Gentoo-Purples', GENTOO_PURPLES)
 
 
 def read_emerges(csvfile):
@@ -279,7 +287,7 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
 
     IMSHOW_OPTS = {
         'aspect': 'auto',
-        'cmap': plt.get_cmap('Purples'),
+        'cmap': GENTOO_PURPLES,
         'interpolation': 'none',
     }
     ax.imshow(data, **IMSHOW_OPTS)
@@ -327,7 +335,8 @@ def plot_barh(raw_data, title, ax_props=None):
 
     ypos = np.arange(values.size)
 
-    ax.barh(ypos, values, color='#54487a', edgecolor='#dddaec', align='center')
+    ax.barh(ypos, values, color=GENTOO_PURPLE1, edgecolor=GENTOO_PURPLE2,
+            align='center')
     ax.invert_yaxis()
     ax.set(yticks=ypos, **ax_props)
     ax.grid(which='major', axis='x')
