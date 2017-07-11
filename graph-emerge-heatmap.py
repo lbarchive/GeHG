@@ -4,6 +4,7 @@
 import argparse
 import csv
 import datetime as dt
+import platform
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,6 +17,7 @@ DEFAULT_CSV = 'emerge.csv'
 DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
 FIGURE_PARAMS = None
+DEFAULT_RECT = [0.05, 0.1, 0.925, 0.825]  # L, B, W, H
 
 # from webpage, #62548f = rgb(98, 84, 143)
 GENTOO_PURPLE1 = '#62548f'
@@ -119,11 +121,13 @@ def agg_data(bins):
 
     Returns a dict of the following data:
     - dts: array of dates (datetime.date)
+    - start and end: start and end of data range
     - see below
     '''
     aggs = {}
 
     dts = np.array(bins['dts'])
+    aggs['dts'] = dts
     DAYS = dts.size
     bins_minute = np.array(bins['by_minute'])
     bins_day = np.array(bins['by_day'])
@@ -168,6 +172,8 @@ def agg_data(bins):
 
     fm = dts[0]
     to = dts[-1]
+    aggs['start'] = fm
+    aggs['end'] = to
     YEARS = to.year - fm.year + 1
     YEAR_NUMBERS = range(fm.year, to.year + 1)
     aggs['YEAR_NUMBERS'] = YEAR_NUMBERS
@@ -266,6 +272,13 @@ def agg_data(bins):
     return aggs
 
 
+def plot_footer(more_props):
+
+    footer = more_props['footer']
+    plt.figtext(0.9875, 0.025, footer, color='gray',
+                horizontalalignment='right')
+
+
 def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
 
     more_props = {} if more_props is None else more_props
@@ -278,10 +291,9 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     fig = plt.figure()
     fig.suptitle(title, fontsize=18)
 
-    rect = [0.10, 0.05, 0.875, 0.875]  # L, B, W, H
+    rect = np.array(DEFAULT_RECT) + more_props['rect_adjust']
     if cbmax:
-        rect[1] = 0.15
-        rect[3] = 0.775
+        rect += [0, 0.1, 0, -0.1]
     ax = plt.axes(rect)
 
     IMSHOW_OPTS = {
@@ -306,11 +318,13 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     ax.grid(axis='x', which='major', linestyle='-')
     ax.grid(axis='x', which='minor', linestyle=':')
 
+    plot_footer(more_props)
+
     if cbmax is None:
         return fig
 
     # draw the scale / colorbar
-    rect[1] = 0.05
+    rect[1] = 0.1
     rect[3] = 0.05
     ax = plt.axes(rect)
 
@@ -337,20 +351,23 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     return fig
 
 
-def plot_barh(raw_data, title, ax_props=None):
+def plot_barh(raw_data, title, ax_props=None, more_props=None):
 
     values = raw_data['values']
 
-    fig, ax = plt.subplots()
+    fig = plt.figure()
     fig.suptitle(title, fontsize=18)
+    rect = np.array(DEFAULT_RECT) + more_props['rect_adjust']
+    ax = plt.axes(rect)
 
     ypos = np.arange(values.size)
-
     ax.barh(ypos, values, color=GENTOO_PURPLE1, edgecolor=GENTOO_PURPLE2,
             align='center')
     ax.invert_yaxis()
     ax.set(yticks=ypos, **ax_props)
     ax.grid(which='major', axis='x')
+
+    plot_footer(more_props)
 
     return fig
 
@@ -383,6 +400,9 @@ def init_figure_params():
                 'xticks': MONTH_LOCS,
                 'xticklabels': MONTH_LABELS,
             },
+            {
+                'rect_adjust': [0] * 4,
+            },
         ],
         'likelihood_by_weekday_timeofday': [
             plot_heatmap,
@@ -395,6 +415,7 @@ def init_figure_params():
             {
                 'cbmax_label': 'Likelihood',
                 'last-xlabel-right-align': True,
+                'rect_adjust': [0.0375, 0, -0.0375, 0],
                 'xminorticks': O24_MINORTICKS,
             },
         ],
@@ -407,6 +428,7 @@ def init_figure_params():
             },
             {
                 'last-xlabel-right-align': True,
+                'rect_adjust': [0] * 4,
                 'xminorticks': O24_MINORTICKS,
             },
         ],
@@ -417,6 +439,9 @@ def init_figure_params():
                 'xticks': WKD_MAJORTICKS,
                 'xticklabels': WKD_LABELS,
             },
+            {
+                'rect_adjust': [0] * 4,
+            },
         ],
         'yearly': [
             plot_barh,
@@ -424,12 +449,18 @@ def init_figure_params():
             {
                 'xlabel': 'Yearly Running Time (hour)',
             },
+            {
+                'rect_adjust': [0, 0.025, 0, -0.025],
+            },
         ],
         'daily_average_by_year': [
             plot_barh,
             'Gentoo emerge Daily Average Running Time by Year',
             {
                 'xlabel': 'Daily Average Running Time (minute)',
+            },
+            {
+                'rect_adjust': [0, 0.025, 0, -0.025],
             },
         ],
     }
@@ -441,6 +472,19 @@ def plot_graphs(aggs, args):
     for figure in ('historical', 'by_year_timeofday', 'by_year_weekday',
                    'yearly', 'daily_average_by_year'):
         FIGURE_PARAMS[figure][2]['yticklabels'] = YEAR_LABELS
+
+    start = aggs['start']
+    end = aggs['end']
+    diff = end - start
+    days = diff.days + (1 if diff.seconds + diff.microseconds else 0)
+    footer = 'Range: {} to {} ({:,} days)'.format(start, end, days)
+    if args.name:
+        footer += ' / Machine: {}'.format(args.name)
+    footer += ' / Generated by GeHG'
+    for figure in FIGURE_PARAMS:
+        rect = DEFAULT_RECT.copy()
+        FIGURE_PARAMS[figure][3]['rect'] = rect
+        FIGURE_PARAMS[figure][3]['footer'] = footer
 
     for name in args.figures:
         item = FIGURE_PARAMS[name]
@@ -471,6 +515,9 @@ def main():
                         help='save figures as images')
     parser.add_argument('-t', '--saveto', default='/tmp',
                         help='where to save images (default: %(default)s)')
+    parser.add_argument('-n', '--name', default=platform.uname().node,
+                        help=('name for identification '
+                              '(default network name: %(default)s)'))
     parser.add_argument('csvfile', nargs='?', type=open, default=DEFAULT_CSV)
     args = parser.parse_args()
 
