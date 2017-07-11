@@ -116,25 +116,7 @@ def bin_data(emerges):
     return bins
 
 
-def agg_data(bins):
-    '''Data aggregation
-
-    Returns a dict of the following data:
-    - dts: array of dates (datetime.date)
-    - start and end: start and end of data range
-    - see below
-    '''
-    aggs = {}
-
-    dts = np.array(bins['dts'])
-    aggs['dts'] = dts
-    DAYS = dts.size
-    bins_minute = np.array(bins['by_minute'])
-    bins_day = np.array(bins['by_day'])
-
-    ###################################
-    # likelihood_by_weekday_timeofday #
-    ###################################
+def agg_likelihood(dts, bins_minute):
     # 24 * 60 = 1440 bins, bin width = 1 minute
     #       | 1st hour |     | last hour |
     # Mon [ 0 1 2 ... 59 ... 1380 ... 1439 ]
@@ -154,10 +136,33 @@ def agg_data(bins):
         z = zip(likelihood_by_weekday_timeofday[wd], bins_minute[i])
         likelihood_by_weekday_timeofday[wd] = [x + y for x, y in z]
 
-    aggs['likelihood_by_weekday_timeofday'] = {
+    return {
         'data': likelihood_by_weekday_timeofday,
-        'cbmax': np.ceil(DAYS / 7) * 60,
+        'cbmax': np.ceil(dts.size / 7) * 60,
     }
+
+
+def agg_data(bins):
+    '''Data aggregation
+
+    Returns a dict of the following data:
+    - dts: array of dates (datetime.date)
+    - start and end: start and end of data range
+    - see below
+    '''
+    aggs = {}
+
+    dts = np.array(bins['dts'])
+    aggs['dts'] = dts
+    DAYS = dts.size
+    bins_minute = np.array(bins['by_minute'])
+    bins_day = np.array(bins['by_day'])
+
+    ###################################
+    # likelihood_by_weekday_timeofday #
+    ###################################
+
+    aggs['likelihood_by_weekday_timeofday'] = agg_likelihood(dts, bins_minute)
 
     ##############
     # historical #
