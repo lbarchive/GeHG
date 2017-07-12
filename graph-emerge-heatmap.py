@@ -162,7 +162,13 @@ def bin_data(emerges):
     return bins
 
 
-def agg_likelihood(dts, bins_minute):
+def agg_likelihood(dts, bins, by_minute=False):
+    # 24 bins, bin width = 1 hour
+    # Mon [ 0 1 2 ... 23 ]
+    # Tue [ ............ ]
+    #   :
+    # Sun [ ............ ]
+    # by_minute == True
     # 24 * 60 = 1440 bins, bin width = 1 minute
     #       | 1st hour |     | last hour |
     # Mon [ 0 1 2 ... 59 ... 1380 ... 1439 ]
@@ -174,37 +180,41 @@ def agg_likelihood(dts, bins_minute):
     # error if DAYS % 7 != 0, but negligible if the number of weeks is high
     # enough.
 
-    likelihood_by_weekday_timeofday = [x[:] for x in [[0] * 24 * 60] * 7]
+    N = 24 * 60 if by_minute else 24
+    likelihood_by_weekday_timeofday = [x[:] for x in [[0] * N] * 7]
 
     WD = dts[0].weekday()
-    for i in range(len(bins_minute)):
+    for i in range(len(bins)):
         wd = (i + WD) % 7
-        z = zip(likelihood_by_weekday_timeofday[wd], bins_minute[i])
+        z = zip(likelihood_by_weekday_timeofday[wd], bins[i])
         likelihood_by_weekday_timeofday[wd] = [x + y for x, y in z]
 
+    N = 60 if by_minute else 60 * 60
     return {
         'dts': dts,
         'range': (dts[0], dts[-1]),
         'data': likelihood_by_weekday_timeofday,
-        'cbmax': np.ceil(dts.size / 7) * 60,
+        'cbmax': np.ceil(dts.size / 7) * N,
     }
 
 
-def agg_animated_likelihood(aggs):
+def agg_animated_likelihood(aggs, bins, by_minute=False):
 
+    dts = aggs['dts']
+    DAYS = dts.size
     window_size = 52
     interval = 1
     windows = []
     r1 = 0
+    msg = 'generating window at day index {}'
     while r1 <= DAYS - window_size * 7:
-        msg = 'generating animated_likelihood window at day index {}'
         log.info(msg.format(r1))
         r2 = r1 + window_size * 7
-        windows.append(agg_likelihood(dts[r1:r2], bins_minute[r1:r2]))
+        windows.append(agg_likelihood(dts[r1:r2], bins[r1:r2], by_minute))
         r1 += interval * 7
     # last window
-    windows.append(agg_likelihood(dts[-window_size:],
-                                  bins_minute[-window_size:]))
+    window = agg_likelihood(dts[-window_size:], bins[-window_size:], by_minute)
+    windows.append(window)
     return windows
 
 
@@ -227,6 +237,7 @@ def agg_data(bins, figures):
     aggs['range'] = agg_range
     DAYS = dts.size
     bins_minute = np.array(bins['by_minute'])
+    bins_hour = np.array(bins['by_hour'])
     bins_day = np.array(bins['by_day'])
 
     #############
@@ -243,7 +254,7 @@ def agg_data(bins, figures):
     # likelihood_by_weekday_timeofday #
     ###################################
 
-    aggs['likelihood_by_weekday_timeofday'] = agg_likelihood(dts, bins_minute)
+    aggs['likelihood_by_weekday_timeofday'] = agg_likelihood(dts, bins_hour)
 
     #######################
     # animated_likelihood #
@@ -251,7 +262,15 @@ def agg_data(bins, figures):
 
     figure = 'animated_likelihood'
     if figure in figures:
-        aggs[figure] = agg_animated_likelihood(aggs)
+        aggs[figure] = agg_animated_likelihood(aggs, bins_hour)
+
+    #######################
+    # animated_likelihood #
+    #######################
+
+    figure = 'animated_likelihood_minute'
+    if figure in figures:
+        aggs[figure] = agg_animated_likelihood(aggs, bins_minute, by_minute=True)
 
     ##############
     # historical #
@@ -425,7 +444,7 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     imdata = ax.imshow(data, **IMSHOW_OPTS)
     ax.xaxis.set_animated(animated)
     ax.yaxis.set_animated(animated)
-    ax.set(xlim=0, yticks=np.arange(rows), **ax_props)
+    ax.set(yticks=np.arange(rows), **ax_props)
     # don't show yticks
     ax.tick_params(axis='y', length=0)
 
@@ -437,9 +456,11 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     prop_name = 'xminorticks'
     if prop_name in more_props:
         ax.xaxis.set_ticks(more_props[prop_name], minor=True)
-
-    ax.grid(axis='x', which='major', linestyle='-')
-    ax.grid(axis='x', which='minor', linestyle=':')
+    if more_props.get('no-grid', False):
+        ax.tick_params(axis='x', length=0)
+    else:
+        ax.grid(axis='x', which='major', linestyle='-')
+        ax.grid(axis='x', which='minor', linestyle=':')
 
     footer = plot_footer(ax, more_props['name'], *raw_data['range'])
     footer.set_animated(animated)
@@ -467,7 +488,7 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     ax.xaxis.set_animated(animated)
     ax.yaxis.set_animated(animated)
 
-    prop_name = 'last-xlabel-right-align'
+    prop_name = 'last-xlabel-right-align-cbmax'
     if prop_name in more_props:
         xlabels = ax.xaxis.get_ticklabels()
         xlabels[-1].set_horizontalalignment('right')
@@ -568,6 +589,10 @@ def init_figure_params():
     O24_MAJORTICKS = list(range(0, 24 * 60, 6 * 60)) + [24 * 60 - 1]
     O24_MINORTICKS = range(0, 24 * 60, 3 * 60)
 
+    H24_LABELS = list(O24_LABELS[:-1]) + ['23:00']
+    H24_MAJORTICKS = list(range(0, 24, 6)) + [24 - 1]
+    H24_MINORTICKS = range(0, 24, 3)
+
     MONTH_DAYS = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
     MONTH_LOCS = np.cumsum(np.array(MONTH_DAYS))
     MONTH_LOCS = np.hstack(([0], MONTH_LOCS[:-1]))
@@ -582,6 +607,7 @@ def init_figure_params():
             plot_histogram,
             'Cumulative Gentoo emerge Running Duration Step Histogram',
             {
+                'xlim': 0,
                 'xlabel': 'Running Duration (second)',
                 'ylabel': 'Likelihood of emerges',
                 'ylim': (0, 1),
@@ -594,6 +620,7 @@ def init_figure_params():
             plot_heatmap,
             'Historical Gentoo emerge Running Time',
             {
+                'xlim': 0,
                 'xticks': MONTH_LOCS,
                 'xticklabels': MONTH_LABELS,
             },
@@ -605,13 +632,15 @@ def init_figure_params():
             plot_heatmap,
             'Gentoo emerge Running Likelihood by Weekday and Time of Day',
             {
-                'yticklabels': WKD_LABELS,
+                'xlim': 0,
                 'xticks': O24_MAJORTICKS,
                 'xticklabels': O24_LABELS,
+                'yticklabels': WKD_LABELS,
             },
             {
                 'cbmax_label': 'Likelihood',
                 'last-xlabel-right-align': True,
+                'last-xlabel-right-align-cbmax': True,
                 'rect_adjust': [0.0375, 0, -0.0375, 0],
                 'xminorticks': O24_MINORTICKS,
             },
@@ -621,14 +650,35 @@ def init_figure_params():
             ('Animated Gentoo emerge Running Likelihood by Weekday and '
              'Time of Day'),
             {
+                'xlim': (-0.5, 23.5),
+                'xticks': H24_MAJORTICKS,
+                'xticklabels': H24_LABELS,
                 'yticklabels': WKD_LABELS,
+            },
+            {
+                'animated': True,
+                'cbmax_label': 'Likelihood',
+                'last-xlabel-right-align-cbmax': True,
+                'no-grid': True,
+                'rect_adjust': [0.0375, 0, -0.0375, 0],
+                'xminorticks': H24_MINORTICKS,
+            },
+        ],
+        'animated_likelihood_minute': [
+            plot_animated_heatmap,
+            ('Animated Gentoo emerge Running Likelihood by Weekday and '
+             'Time of Day'),
+            {
+                'xlim': 0,
                 'xticks': O24_MAJORTICKS,
                 'xticklabels': O24_LABELS,
+                'yticklabels': WKD_LABELS,
             },
             {
                 'animated': True,
                 'cbmax_label': 'Likelihood',
                 'last-xlabel-right-align': True,
+                'last-xlabel-right-align-cbmax': True,
                 'rect_adjust': [0.0375, 0, -0.0375, 0],
                 'xminorticks': O24_MINORTICKS,
             },
@@ -637,11 +687,13 @@ def init_figure_params():
             plot_heatmap,
             'Gentoo emerge Running Time by Year and Time of Day',
             {
+                'xlim': 0,
                 'xticks': O24_MAJORTICKS,
                 'xticklabels': O24_LABELS,
             },
             {
                 'last-xlabel-right-align': True,
+                'last-xlabel-right-align-cbmax': True,
                 'rect_adjust': [0] * 4,
                 'xminorticks': O24_MINORTICKS,
             },
@@ -650,6 +702,7 @@ def init_figure_params():
             plot_heatmap,
             'Gentoo emerge Running Time by Year and Weekday',
             {
+                'xlim': 0,
                 'xticks': WKD_MAJORTICKS,
                 'xticklabels': WKD_LABELS,
             },
@@ -662,6 +715,7 @@ def init_figure_params():
             'Gentoo emerge Yearly Running Time',
             {
                 'xlabel': 'Yearly Running Time (hour)',
+                'xlim': 0,
             },
             {
                 'rect_adjust': [0, 0.025, 0, -0.025],
@@ -672,6 +726,7 @@ def init_figure_params():
             'Gentoo emerge Daily Average Running Time by Year',
             {
                 'xlabel': 'Daily Average Running Time (minute)',
+                'xlim': 0,
             },
             {
                 'rect_adjust': [0, 0.025, 0, -0.025],
@@ -702,7 +757,7 @@ def plot_graphs(aggs, args):
             log.info('saving {}...'.format(name))
             filename = '%s/GeHG-%s' % (args.saveto, name)
             if plot_args[2].get('animated', False):
-                # figure.save(filename + '.gif', writer='imagemagick', fps=26)
+                # figure.save(filename + '.gif', writer='imagemagick', fps=4)
                 # For GIF, needs about 3G memory to run it comfortably, perhaps
                 # using hours_bin would help a bit.
                 figure.save(filename + '.mp4', fps=26, bitrate=3000)
