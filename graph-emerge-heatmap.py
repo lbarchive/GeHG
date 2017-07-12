@@ -4,6 +4,7 @@
 import argparse
 import csv
 import datetime as dt
+import logging as log
 import platform
 
 import matplotlib.animation as animation
@@ -26,6 +27,11 @@ GENTOO_PURPLE2 = '#dddaec'
 GENTOO_PURPLES = np.array([98, 84, 143]) / 255
 GENTOO_PURPLES = [[1.0] * 3, GENTOO_PURPLES]
 GENTOO_PURPLES = LSC.from_list('Gentoo-Purples', GENTOO_PURPLES)
+
+LOG_FORMAT = ('%(asctime)s.%(msecs)03d %(levelname)8s '
+              '%(funcName)s:%(lineno)d: %(message)s')
+LOG_DATEFMT = '%H:%M:%S'
+log.basicConfig(format=LOG_FORMAT, datefmt=LOG_DATEFMT, level='DEBUG')
 
 
 # patch and insight for ax.xaxis and footer from:
@@ -85,6 +91,7 @@ def bin_data(emerges):
     - by_minute: array of minute bins (DAYS, minute bins)
     - by_hour: array of hour bins (DAYS, hour bins)
     '''
+    log.info('binning emerge sessions...')
     bins = {}
 
     BASE = emerges[0][0].replace(hour=0, minute=0, second=0)
@@ -180,6 +187,7 @@ def agg_data(bins):
     - start and end: start and end of data range
     - see below
     '''
+    log.info('aggregating data...')
     aggs = {}
 
     dts = np.array(bins['dts'])
@@ -207,7 +215,8 @@ def agg_data(bins):
     windows = []
     r1 = 0
     while r1 <= DAYS - window_size * 7:
-        print('generating window at day index {}'.format(r1))
+        msg = 'generating animated_likelihood window at day index {}'
+        log.info(msg.format(r1))
         r2 = r1 + window_size * 7
         windows.append(agg_likelihood(dts[r1:r2], bins_minute[r1:r2]))
         r1 += interval * 7
@@ -626,9 +635,10 @@ def plot_graphs(aggs, args):
         item = FIGURE_PARAMS[name]
         plot_func = item[0]
         plot_args = item[1:]
-        print(name)
+        log.info('plotting {}...'.format(name))
         figure = plot_func(aggs[name], *plot_args)[0]
         if args.figsave:
+            log.info('saving {}...'.format(name))
             filename = '%s/GeHG-%s' % (args.saveto, name)
             if plot_args[2].get('animated', False):
                 # figure.save(filename + '.gif', writer='imagemagick', fps=26)
