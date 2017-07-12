@@ -179,7 +179,25 @@ def agg_likelihood(dts, bins_minute):
     }
 
 
-def agg_data(bins):
+def agg_animated_likelihood(aggs):
+
+    window_size = 52
+    interval = 1
+    windows = []
+    r1 = 0
+    while r1 <= DAYS - window_size * 7:
+        msg = 'generating animated_likelihood window at day index {}'
+        log.info(msg.format(r1))
+        r2 = r1 + window_size * 7
+        windows.append(agg_likelihood(dts[r1:r2], bins_minute[r1:r2]))
+        r1 += interval * 7
+    # last window
+    windows.append(agg_likelihood(dts[-window_size:],
+                                  bins_minute[-window_size:]))
+    return windows
+
+
+def agg_data(bins, figures):
     '''Data aggregation
 
     Returns a dict of the following data:
@@ -210,20 +228,9 @@ def agg_data(bins):
     # animated_likelihood #
     #######################
 
-    window_size = 52
-    interval = 1
-    windows = []
-    r1 = 0
-    while r1 <= DAYS - window_size * 7:
-        msg = 'generating animated_likelihood window at day index {}'
-        log.info(msg.format(r1))
-        r2 = r1 + window_size * 7
-        windows.append(agg_likelihood(dts[r1:r2], bins_minute[r1:r2]))
-        r1 += interval * 7
-    # last window
-    windows.append(agg_likelihood(dts[-window_size:],
-                                  bins_minute[-window_size:]))
-    aggs['animated_likelihood'] = windows
+    figure = 'animated_likelihood'
+    if figure in figures:
+        aggs[figure] = agg_animated_likelihood(aggs)
 
     ##############
     # historical #
@@ -681,7 +688,7 @@ def main():
 
     emerges = read_emerges(args.csvfile)
     bins = bin_data(emerges)
-    aggs = agg_data(bins)
+    aggs = agg_data(bins, args.figures)
 
     dpi = plt.rcParams['figure.dpi']
     plt.rcParams['savefig.dpi'] = dpi
