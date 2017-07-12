@@ -101,6 +101,17 @@ def bin_data(emerges):
     dts = [BASE.date() + dt.timedelta(days=i) for i in range(DAYS)]
     bins['dts'] = dts
 
+    #############
+    # durations #
+    #############
+
+    sessions = np.array(emerges)
+    durations = [d.total_seconds() for d in sessions[:, 1] - sessions[:, 0]]
+    bins['durations'] = durations
+
+    dmax = max(durations)
+    idx = durations.index(dmax)
+
     ###############
     # bins_minute #
     ###############
@@ -217,6 +228,16 @@ def agg_data(bins, figures):
     DAYS = dts.size
     bins_minute = np.array(bins['by_minute'])
     bins_day = np.array(bins['by_day'])
+
+    #############
+    # durations #
+    #############
+
+    aggs['durations'] = {
+        'dts': dts,
+        'range': agg_range,
+        'data': bins['durations'],
+    }
 
     ###################################
     # likelihood_by_weekday_timeofday #
@@ -515,6 +536,27 @@ def plot_barh(raw_data, title, ax_props=None, more_props=None):
     return fig,
 
 
+def plot_histogram(raw_data, title, ax_props=None, more_props=None):
+
+    data = raw_data['data']
+
+    fig = plt.figure()
+    fig.suptitle(title, fontsize=18)
+    rect = np.array(DEFAULT_RECT) + more_props['rect_adjust']
+    ax = plt.axes(rect)
+
+    bins = [5, 10, 20, 30, 60, 120, 180, 300, 600, 1200, 1800, 3600, 7200,
+            10800, 3600 * 5]
+    ax.hist(data, bins=bins, normed=True, histtype='step',
+            color=GENTOO_PURPLE1, cumulative=True)
+    ax.set(**ax_props)
+    ax.grid(which='both', axis='both')
+
+    plot_footer(ax, more_props['name'], *raw_data['range'])
+
+    return fig,
+
+
 def init_figure_params():
 
     global FIGURE_PARAMS
@@ -536,6 +578,18 @@ def init_figure_params():
     WKD_MAJORTICKS = range(0, 7 * 24 * 60, 24 * 60)
 
     FIGURE_PARAMS = {
+        'durations': [
+            plot_histogram,
+            'Cumulative Gentoo emerge Running Duration Step Histogram',
+            {
+                'xlabel': 'Running Duration (second)',
+                'ylabel': 'Likelihood of emerges',
+                'ylim': (0, 1),
+            },
+            {
+                'rect_adjust': [0] * 4,
+            },
+        ],
         'historical': [
             plot_heatmap,
             'Historical Gentoo emerge Running Time',
