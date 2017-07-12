@@ -6,6 +6,7 @@ import csv
 import datetime as dt
 import platform
 
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap as LSC
@@ -25,6 +26,33 @@ GENTOO_PURPLE2 = '#dddaec'
 GENTOO_PURPLES = np.array([98, 84, 143]) / 255
 GENTOO_PURPLES = [[1.0] * 3, GENTOO_PURPLES]
 GENTOO_PURPLES = LSC.from_list('Gentoo-Purples', GENTOO_PURPLES)
+
+
+# patch and insight for ax.xaxis and footer from:
+#   https://stackoverflow.com/a/17562747/242583 by tacaswell
+#   https://stackoverflow.com/a/30860027/242583 by eric
+def _blit_draw(self, artists, bg_cache):
+    # Handles blitted drawing, which renders only the artists given instead
+    # of the entire figure.
+    updated_ax = []
+    for a in artists:
+        # If we haven't cached the background for this axes object, do
+        # so now. This might not always be reliable, but it's an attempt
+        # to automate the process.
+        if a.axes not in bg_cache:
+            # get bbox from a.axes.figure instead of a.axes
+            bbox = a.axes.figure.bbox
+            bg_cache[a.axes] = a.figure.canvas.copy_from_bbox(bbox)
+        a.axes.draw_artist(a)
+        updated_ax.append(a.axes)
+
+    # After rendering all the needed artists, blit each axes individually.
+    for ax in set(updated_ax):
+        # get bbox from ax.figure instead of ax
+        ax.figure.canvas.blit(ax.figure.bbox)
+
+# MONKEY PATCH!!
+animation.Animation._blit_draw = _blit_draw
 
 
 def read_emerges(csvfile):
@@ -137,6 +165,8 @@ def agg_likelihood(dts, bins_minute):
         likelihood_by_weekday_timeofday[wd] = [x + y for x, y in z]
 
     return {
+        'dts': dts,
+        'range': (dts[0], dts[-1]),
         'data': likelihood_by_weekday_timeofday,
         'cbmax': np.ceil(dts.size / 7) * 60,
     }
@@ -154,6 +184,10 @@ def agg_data(bins):
 
     dts = np.array(bins['dts'])
     aggs['dts'] = dts
+    fm = dts[0]
+    to = dts[-1]
+    agg_range = fm, to
+    aggs['range'] = agg_range
     DAYS = dts.size
     bins_minute = np.array(bins['by_minute'])
     bins_day = np.array(bins['by_day'])
@@ -163,6 +197,24 @@ def agg_data(bins):
     ###################################
 
     aggs['likelihood_by_weekday_timeofday'] = agg_likelihood(dts, bins_minute)
+
+    #######################
+    # animated_likelihood #
+    #######################
+
+    window_size = 52
+    interval = 1
+    windows = []
+    r1 = 0
+    while r1 <= DAYS - window_size * 7:
+        print('generating window at day index {}'.format(r1))
+        r2 = r1 + window_size * 7
+        windows.append(agg_likelihood(dts[r1:r2], bins_minute[r1:r2]))
+        r1 += interval * 7
+    # last window
+    windows.append(agg_likelihood(dts[-window_size:],
+                                  bins_minute[-window_size:]))
+    aggs['animated_likelihood'] = windows
 
     ##############
     # historical #
@@ -175,10 +227,6 @@ def agg_data(bins):
     #   :
     # YEARS  [ ............................. ]
 
-    fm = dts[0]
-    to = dts[-1]
-    aggs['start'] = fm
-    aggs['end'] = to
     YEARS = to.year - fm.year + 1
     YEAR_NUMBERS = range(fm.year, to.year + 1)
     aggs['YEAR_NUMBERS'] = YEAR_NUMBERS
@@ -204,7 +252,11 @@ def agg_data(bins):
     for d, day in zip(leaf_dts, leaf_days):
         historical[d.year - fm.year, 59] = day
 
-    aggs['historical'] = {'data': historical}
+    aggs['historical'] = {
+        'dts': dts,
+        'range': agg_range,
+        'data': historical,
+    }
 
     ##########
     # yearly #
@@ -213,7 +265,9 @@ def agg_data(bins):
     yearly_seconds = np.sum(historical, axis=1)
     yearly = yearly_seconds / 3600
     aggs['yearly'] = {
-        'values': yearly,
+        'dts': dts,
+        'range': agg_range,
+        'data': yearly,
     }
 
     #########################
@@ -226,7 +280,9 @@ def agg_data(bins):
         daily_average_by_year[y] /= days
 
     aggs['daily_average_by_year'] = {
-        'values': daily_average_by_year,
+        'dts': dts,
+        'range': agg_range,
+        'data': daily_average_by_year,
     }
 
     #####################
@@ -246,7 +302,11 @@ def agg_data(bins):
         tsum = np.sum(year_minutes.reshape(-1, 24 * 60), axis=0)
         by_year_timeofday[y] = tsum
 
-    aggs['by_year_timeofday'] = {'data': by_year_timeofday}
+    aggs['by_year_timeofday'] = {
+        'dts': dts,
+        'range': agg_range,
+        'data': by_year_timeofday,
+    }
 
     ###################
     # by_year_weekday #
@@ -272,16 +332,33 @@ def agg_data(bins):
         minutes.resize((np.ceil(minutes.size / (7 * 24 * 60)), 7 * 24 * 60))
         by_year_weekday[y] = np.sum(minutes, axis=0)
 
-    aggs['by_year_weekday'] = {'data': by_year_weekday}
+    aggs['by_year_weekday'] = {
+        'dts': dts,
+        'range': agg_range,
+        'data': by_year_weekday,
+    }
 
     return aggs
 
 
-def plot_footer(more_props):
+def footer_text(name, start, end):
 
-    footer = more_props['footer']
-    plt.figtext(0.9875, 0.025, footer, color='gray',
-                horizontalalignment='right')
+    diff = end - start
+    days = diff.days + 1
+    text = 'Range: {} to {} ({:,} days)'.format(start, end, days)
+    if name:
+        text += ' / Machine: {}'.format(name)
+    text += ' / Generated by GeHG'
+    return text
+
+
+def plot_footer(ax, *args):
+
+    text = footer_text(*args)
+    footer = ax.text(0.9875, 0.025, text, color='gray',
+                     transform=plt.gcf().transFigure,
+                     horizontalalignment='right', verticalalignment='center')
+    return footer
 
 
 def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
@@ -301,12 +378,16 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
         rect += [0, 0.1, 0, -0.1]
     ax = plt.axes(rect)
 
+    animated = more_props.get('animated', False)
     IMSHOW_OPTS = {
         'aspect': 'auto',
         'cmap': GENTOO_PURPLES,
         'interpolation': 'none',
+        'animated': animated,
     }
-    ax.imshow(data, **IMSHOW_OPTS)
+    imdata = ax.imshow(data, **IMSHOW_OPTS)
+    ax.xaxis.set_animated(animated)
+    ax.yaxis.set_animated(animated)
     ax.set(xlim=0, yticks=np.arange(rows), **ax_props)
     # don't show yticks
     ax.tick_params(axis='y', length=0)
@@ -323,10 +404,11 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     ax.grid(axis='x', which='major', linestyle='-')
     ax.grid(axis='x', which='minor', linestyle=':')
 
-    plot_footer(more_props)
+    footer = plot_footer(ax, more_props['name'], *raw_data['range'])
+    footer.set_animated(animated)
 
     if cbmax is None:
-        return fig
+        return fig, imdata, footer
 
     # draw the scale / colorbar
     rect[1] = 0.1
@@ -345,6 +427,8 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
     xlabels = list('{:%}'.format(x) for x in np.arange(5) / 4 * N)
     ax.xaxis.set_ticks(np.hstack((np.arange(4) / 4 * 256, [255])))
     ax.xaxis.set_ticklabels(xlabels)
+    ax.xaxis.set_animated(animated)
+    ax.yaxis.set_animated(animated)
 
     prop_name = 'last-xlabel-right-align'
     if prop_name in more_props:
@@ -353,28 +437,66 @@ def plot_heatmap(raw_data, title, ax_props=None, more_props=None):
 
     ax.grid(axis='x', which='major', linestyle='-')
 
-    return fig
+    return fig, imdata, footer
+
+
+def update_animated_heatmap(window, name, axes, im, footer, redraws):
+
+    data = window['data']
+    cbmax = window['cbmax']
+
+    MAX = np.max(data)
+    im.set_data(data / MAX)
+
+    ax_im, ax = axes
+    N = MAX / cbmax
+    xlabels = list('{:%}'.format(x) for x in np.arange(5) / 4 * N)
+    ax.xaxis.set_ticklabels(xlabels)
+
+    footer.set_text(footer_text(name, *window['range']))
+
+    return redraws
+
+
+def plot_animated_heatmap(windows, title, ax_props=None, more_props=None):
+
+    fig, im, footer = plot_heatmap(windows[0], title, ax_props, more_props)
+
+    axes = fig.get_axes()
+    ax1, ax2 = axes
+    redraws = [im, footer, ax1.xaxis, ax1.yaxis, ax2.xaxis, ax2.yaxis]
+
+    anim = animation.FuncAnimation(
+        fig,
+        update_animated_heatmap,
+        frames=windows,
+        fargs=(more_props['name'], axes, im, footer, redraws),
+        interval=250,
+        blit=True,
+    )
+
+    return anim,
 
 
 def plot_barh(raw_data, title, ax_props=None, more_props=None):
 
-    values = raw_data['values']
+    data = raw_data['data']
 
     fig = plt.figure()
     fig.suptitle(title, fontsize=18)
     rect = np.array(DEFAULT_RECT) + more_props['rect_adjust']
     ax = plt.axes(rect)
 
-    ypos = np.arange(values.size)
-    ax.barh(ypos, values, color=GENTOO_PURPLE1, edgecolor=GENTOO_PURPLE2,
+    ypos = np.arange(data.size)
+    ax.barh(ypos, data, color=GENTOO_PURPLE1, edgecolor=GENTOO_PURPLE2,
             align='center')
     ax.invert_yaxis()
     ax.set(yticks=ypos, **ax_props)
     ax.grid(which='major', axis='x')
 
-    plot_footer(more_props)
+    plot_footer(ax, more_props['name'], *raw_data['range'])
 
-    return fig
+    return fig,
 
 
 def init_figure_params():
@@ -418,6 +540,23 @@ def init_figure_params():
                 'xticklabels': O24_LABELS,
             },
             {
+                'cbmax_label': 'Likelihood',
+                'last-xlabel-right-align': True,
+                'rect_adjust': [0.0375, 0, -0.0375, 0],
+                'xminorticks': O24_MINORTICKS,
+            },
+        ],
+        'animated_likelihood': [
+            plot_animated_heatmap,
+            ('Animated Gentoo emerge Running Likelihood by Weekday and '
+             'Time of Day'),
+            {
+                'yticklabels': WKD_LABELS,
+                'xticks': O24_MAJORTICKS,
+                'xticklabels': O24_LABELS,
+            },
+            {
+                'animated': True,
                 'cbmax_label': 'Likelihood',
                 'last-xlabel-right-align': True,
                 'rect_adjust': [0.0375, 0, -0.0375, 0],
@@ -478,26 +617,26 @@ def plot_graphs(aggs, args):
                    'yearly', 'daily_average_by_year'):
         FIGURE_PARAMS[figure][2]['yticklabels'] = YEAR_LABELS
 
-    start = aggs['start']
-    end = aggs['end']
-    diff = end - start
-    days = diff.days + (1 if diff.seconds + diff.microseconds else 0)
-    footer = 'Range: {} to {} ({:,} days)'.format(start, end, days)
-    if args.name:
-        footer += ' / Machine: {}'.format(args.name)
-    footer += ' / Generated by GeHG'
     for figure in FIGURE_PARAMS:
         rect = DEFAULT_RECT.copy()
         FIGURE_PARAMS[figure][3]['rect'] = rect
-        FIGURE_PARAMS[figure][3]['footer'] = footer
+        FIGURE_PARAMS[figure][3]['name'] = args.name
 
     for name in args.figures:
         item = FIGURE_PARAMS[name]
         plot_func = item[0]
         plot_args = item[1:]
-        figure = plot_func(aggs[name], *plot_args)
+        print(name)
+        figure = plot_func(aggs[name], *plot_args)[0]
         if args.figsave:
-            figure.savefig('%s/GeHG-%s.png' % (args.saveto, name))
+            filename = '%s/GeHG-%s' % (args.saveto, name)
+            if plot_args[2].get('animated', False):
+                # figure.save(filename + '.gif', writer='imagemagick', fps=26)
+                # For GIF, needs about 3G memory to run it comfortably, perhaps
+                # using hours_bin would help a bit.
+                figure.save(filename + '.mp4', fps=26, bitrate=3000)
+            else:
+                figure.savefig(filename + '.png')
 
     if not args.noshow:
         plt.show()
