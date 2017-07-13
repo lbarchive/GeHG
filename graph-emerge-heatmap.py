@@ -129,9 +129,6 @@ def bin_data(emerges):
     durations = [d.total_seconds() for d in sessions[:, 1] - sessions[:, 0]]
     bins['durations'] = durations
 
-    dmax = max(durations)
-    idx = durations.index(dmax)
-
     ###############
     # bins_minute #
     ###############
@@ -255,7 +252,6 @@ def agg_data(bins, figures):
     to = dts[-1]
     agg_range = fm, to
     aggs['range'] = agg_range
-    DAYS = dts.size
     emerges = bins['emerges']
     bins_minute = np.array(bins['by_minute'])
     bins_hour = np.array(bins['by_hour'])
@@ -271,11 +267,18 @@ def agg_data(bins, figures):
         'data': bins['durations'],
     }
 
-    ###################################
-    # likelihood_by_weekday_timeofday #
-    ###################################
+    #####################
+    # likelihood_by_wtod #
+    ######################
 
-    aggs['likelihood_by_weekday_timeofday'] = agg_likelihood(dts, bins_hour)
+    aggs['likelihood_by_wtod'] = agg_likelihood(dts, bins_hour)
+
+    #############################
+    # likelihood_by_wtod_minute #
+    #############################
+
+    agg = agg_likelihood(dts, bins_minute, by_minute=True)
+    aggs['likelihood_by_wtod_minute'] = agg
 
     #######################
     # animated_likelihood #
@@ -285,9 +288,9 @@ def agg_data(bins, figures):
     if figure in figures:
         aggs[figure] = agg_animated_likelihood(aggs, bins_hour)
 
-    #######################
-    # animated_likelihood #
-    #######################
+    ##############################
+    # animated_likelihood_minute #
+    ##############################
 
     figure = 'animated_likelihood_minute'
     if figure in figures:
@@ -707,7 +710,24 @@ def init_figure_params():
                 'rect_adjust': [0] * 4,
             },
         ],
-        'likelihood_by_weekday_timeofday': [
+        'likelihood_by_wtod': [
+            plot_heatmap,
+            'Gentoo emerge Running Likelihood by Weekday and Time of Day',
+            {
+                'xlim': (-0.5, 23.5),
+                'xticks': H24_MAJORTICKS,
+                'xticklabels': H24_LABELS,
+                'yticklabels': WKD_LABELS,
+            },
+            {
+                'cbmax_label': 'Likelihood',
+                'last-xlabel-right-align-cbmax': True,
+                'no-grid': True,
+                'rect_adjust': [0.0375, 0, -0.0375, 0],
+                'xminorticks': H24_MINORTICKS,
+            },
+        ],
+        'likelihood_by_wtod_minute': [
             plot_heatmap,
             'Gentoo emerge Running Likelihood by Weekday and Time of Day',
             {
