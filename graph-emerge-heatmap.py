@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-
 import argparse
 import csv
 import datetime as dt
@@ -100,6 +99,7 @@ def bin_data(emerges):
 
     dts = [BASE.date() + dt.timedelta(days=i) for i in range(DAYS)]
     bins['dts'] = dts
+    bins['emerges'] = emerges
 
     #############
     # durations #
@@ -236,6 +236,7 @@ def agg_data(bins, figures):
     agg_range = fm, to
     aggs['range'] = agg_range
     DAYS = dts.size
+    emerges = bins['emerges']
     bins_minute = np.array(bins['by_minute'])
     bins_hour = np.array(bins['by_hour'])
     bins_day = np.array(bins['by_day'])
@@ -270,7 +271,8 @@ def agg_data(bins, figures):
 
     figure = 'animated_likelihood_minute'
     if figure in figures:
-        aggs[figure] = agg_animated_likelihood(aggs, bins_minute, by_minute=True)
+        agg = agg_animated_likelihood(aggs, bins_minute, by_minute=True)
+        aggs[figure] = agg
 
     ##############
     # historical #
@@ -314,6 +316,13 @@ def agg_data(bins, figures):
         'data': historical,
     }
 
+    ###############
+    # yearly_days #
+    ###############
+
+    g = lambda y: (1 for d in dts if d.year == YEAR_NUMBERS[y])
+    yearly_days = np.array(list(sum(g(y)) for y in range(YEARS)))
+
     ##########
     # yearly #
     ##########
@@ -324,6 +333,56 @@ def agg_data(bins, figures):
         'dts': dts,
         'range': agg_range,
         'data': yearly,
+    }
+
+    ###############
+    # norm_yearly #
+    ###############
+
+    norm_yearly = np.array(yearly) / yearly_days * 365
+
+    aggs['norm_yearly'] = {
+        'dts': dts,
+        'range': agg_range,
+        'data': norm_yearly,
+    }
+
+    ###############
+    # yearly_runs #
+    ###############
+
+    yearly_runs = np.zeros(YEARS)
+    years = list(y.year for y in np.array(emerges)[:, 0])
+    yearly_runs = list(sum(e == y for e in years) for y in YEAR_NUMBERS)
+    yearly_runs = np.array(yearly_runs)
+
+    aggs['yearly_runs'] = {
+        'dts': dts,
+        'range': agg_range,
+        'data': yearly_runs,
+    }
+
+    ####################
+    # norm_yearly_runs #
+    ####################
+
+    norm_yearly_runs = yearly_runs / yearly_days * 365
+    aggs['norm_yearly_runs'] = {
+        'dts': dts,
+        'range': agg_range,
+        'data': norm_yearly_runs,
+    }
+
+    #######################
+    # norm_average_per_run_by_year #
+    #######################
+    # in minute
+
+    norm_average_per_run_by_year = norm_yearly / norm_yearly_runs * 60
+    aggs['norm_average_per_run_by_year'] = {
+        'dts': dts,
+        'range': agg_range,
+        'data': norm_average_per_run_by_year,
     }
 
     #########################
@@ -712,9 +771,53 @@ def init_figure_params():
         ],
         'yearly': [
             plot_barh,
-            'Gentoo emerge Yearly Running Time',
+            'Yearly Gentoo emerge Running Time',
             {
                 'xlabel': 'Yearly Running Time (hour)',
+                'xlim': 0,
+            },
+            {
+                'rect_adjust': [0, 0.025, 0, -0.025],
+            },
+        ],
+        'norm_yearly': [
+            plot_barh,
+            'Normalized Yearly Gentoo emerge Running Time',
+            {
+                'xlabel': 'Normalized Running Time (hour)',
+                'xlim': 0,
+            },
+            {
+                'rect_adjust': [0, 0.025, 0, -0.025],
+            },
+        ],
+        'yearly_runs': [
+            plot_barh,
+            'Yearly Gentoo emerge Runs',
+            {
+                'xlabel': 'Normalized Runs',
+                'xlim': 0,
+            },
+            {
+                'rect_adjust': [0, 0.025, 0, -0.025],
+            },
+        ],
+        'norm_yearly_runs': [
+            plot_barh,
+            'Normalized Yearly Gentoo emerge Runs',
+            {
+                'xlabel': 'Normalized Runs',
+                'xlim': 0,
+            },
+            {
+                'rect_adjust': [0, 0.025, 0, -0.025],
+            },
+        ],
+        'norm_average_per_run_by_year': [
+            plot_barh,
+            'Normalized Gentoo emerge Average Running Time Per Run by Year',
+            {
+                'xlabel': 'Normalized Average Running Time Per Run (minute)',
                 'xlim': 0,
             },
             {
@@ -739,7 +842,8 @@ def plot_graphs(aggs, args):
 
     YEAR_LABELS = aggs['YEAR_LABELS']
     for figure in ('historical', 'by_year_timeofday', 'by_year_weekday',
-                   'yearly', 'daily_average_by_year'):
+                   'yearly', 'norm_yearly', 'yearly_runs', 'norm_yearly_runs',
+                   'norm_average_per_run_by_year', 'daily_average_by_year'):
         FIGURE_PARAMS[figure][2]['yticklabels'] = YEAR_LABELS
 
     for figure in FIGURE_PARAMS:
